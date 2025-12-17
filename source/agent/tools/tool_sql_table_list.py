@@ -170,7 +170,9 @@ if __name__ == "__main__":
     import os
     from dotenv import load_dotenv
     load_dotenv()
-    DATABASE_URL = os.getenv("DATABASE_URL", "mysql+pymysql://root:12345678@localhost:3306/sonic")
+    DATABASE_URL = os.getenv("DATABASE_URL")
+    if not DATABASE_URL:
+        raise ValueError("请设置环境变量 DATABASE_URL，例如: mysql+pymysql://user:password@host:port/database")
     db_manager = MySQLDatabaseManager(DATABASE_URL)
     # tool = ToolSqlTableList(db_manager=db_manager)
     # print(tool._run(""))
