@@ -55,3 +55,6 @@ Thumbs.db
 # Project specific
 source/agent/logs/
 
+# LangGraph
+.langgraph_api/
+
