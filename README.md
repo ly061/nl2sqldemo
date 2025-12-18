@@ -1,79 +1,57 @@
-# NL2SQL Demo
 
-一个基于 LangChain 和 LangGraph 的自然语言转 SQL 查询的智能助手项目。
+1. 系统架构与核心组件
+Supervisor（总控模块）
+职责：协调各组件、管理流程状态（如迭代次数、评审分数）、触发流程流转。
+逻辑：根据图片流程控制节点切换（如需求分析→测试点设计→用例编写→评审），当评审不通过时（分数<80且迭代<3次）回退至“测试用例编写专家”优化。
+核心业务模块
+结合LangChain和LangGraph的能力，按流程图节点拆分：
 
-## 功能特性
-
-- 🤖 智能 SQL 查询：通过自然语言查询数据库
-- 🔍 数据库表结构查询：自动获取数据库表列表和表结构
-- ✅ SQL 语法验证：检查 SQL 语句的正确性
-- 🛡️ 安全保护：只允许执行 SELECT 查询，防止危险操作
-
-## 技术栈
-
-- LangChain / LangGraph
-- DeepSeek API
-- SQLAlchemy
-- MySQL
-
-## 安装
-
-1. 克隆仓库：
-```bash
-git clone https://github.com/ly061/nl2sqldemo.git
-cd nl2sqldemo
-```
-
-2. 创建虚拟环境：
-```bash
-python -m venv venv
-source venv/bin/activate  # Windows: venv\Scripts\activate
-```
-
-3. 安装依赖：
-```bash
-pip install -r requirements.txt
-```
-
-4. 配置环境变量：
-```bash
-cp .env.example .env
-# 编辑 .env 文件，填入你的数据库连接信息和 API 密钥
-```
-
-## 使用方法
-
-运行 SQL Agent：
-```bash
-python source/agent/sql_agent.py
-```
-
-## 项目结构
-
-```
-langgraphDemo/
-├── source/
-│   └── agent/
-│       ├── sql_agent.py          # SQL Agent 主程序
-│       ├── llm.py                # LLM 配置
-│       ├── tools/                # 工具集合
-│       │   └── tool_sql_table_list.py
-│       └── utils/                # 工具函数
-│           ├── db_utils.py       # 数据库工具
-│           └── log_utils.py      # 日志工具
-├── requirements.txt             # 依赖列表
-├── .env.example                 # 环境变量模板
-└── README.md                    # 项目说明
-```
-
-## 环境变量配置
-
-在 `.env` 文件中配置以下变量：
-
-- `DATABASE_URL`: MySQL 数据库连接字符串
-- `DEEPSEEK_API_KEY`: DeepSeek API 密钥
-- `TAVILY_API_KEY`: Tavily API 密钥（可选）
-
-## License
-
-MIT
+2. 需求分析专家
+功能：解析原始需求文档，提取关键信息（功能点、边界条件、用户场景等）。
+LangChain应用：
+用LLM + Prompt Engineering提取结构化需求（如功能名称:XXX、输入范围:XXX）。
+通过OutputParser将自然语言需求转化为可计算的JSON结构。
+LangGraph应用：
+将需求存储为知识图谱节点，关联领域术语（如“登录功能”→“用户名/密码格式”）。
+建立需求间的依赖关系（如“支付功能”依赖“登录功能”），为后续测试点关联做准备。
+3. 测试点设计专家（或AI）
+功能：基于需求分析结果，生成测试点（如功能测试、边界测试、异常测试等）。
+LangChain应用：
+用SequentialChain串联需求解析结果与测试点生成逻辑（如“登录功能”→“空密码测试、超长字符测试”）。
+引入Test-Point模板库（LangChain Memory存储历史模板），通过Few-Shot Prompt加速生成。
+LangGraph应用：
+在图谱中关联“需求节点”与“测试点节点”，记录测试类型（如边界测试→需求ID_001）。
+利用图谱推理扩展测试覆盖（如“支付功能”关联“优惠券规则”→自动补全组合测试点）。
+4. 测试用例编写专家
+功能：将测试点转化为具体测试用例（含步骤、预期结果）。
+LangChain应用：
+用LLM Chain生成结构化用例（如步骤1: 输入XXX → 步骤2: 点击XXX → 预期：显示XXX）。
+通过Critique Chain自检用例逻辑（如检查步骤完整性、预期结果合理性）。
+LangGraph应用：
+关联图谱中“测试点节点”与“用例节点”，存储用例元数据（如优先级、关联需求ID）。
+复用历史优质用例（图谱检索相似测试场景→优化当前用例）。
+5. 测试用例评审模块
+功能：评估用例质量（打分），决定是否通过或回退优化。
+LangChain应用：
+用LLM + 评分规则（如覆盖率、可执行性、无歧义性）自动打分（0-100分）。
+若分数<80，生成优化建议（如“步骤缺失异常场景”）。
+LangGraph应用：
+验证用例与需求、测试点的追溯链是否完整（图谱路径检查）。
+对比历史版本用例（图谱时间线分析），避免重复缺陷。
+6. 测试用例生成器
+功能：输出最终测试用例（如Excel、Markdown、JSON格式）。
+LangChain应用：
+用Agent自动格式化输出（如按模板生成用例文档）。
+整合评审反馈（LangChain Memory存储优化记录）持续迭代用例。
+LangGraph应用：
+将生成的用例、评审记录、版本信息写入知识图谱，形成“需求→测试点→用例→评审”的完整追溯链。
+7. 流程闭环逻辑（对应图片箭头）
+正常流程：
+Supervisor→需求分析→测试点设计→用例编写→评审（分数≥80）→生成器→结束。
+回退逻辑：
+若评审分数<80 且 迭代次数<3次 → Supervisor触发回退至“测试用例编写专家”，结合优化建议重试。
+终止条件：
+迭代≥3次仍不通过 → 人工介入（流程图未体现，但需补充兜底逻辑）。
+8. LangChain与LangGraph的协同价值
+LangChain：处理自然语言理解、LLM链式逻辑、动态交互（如Prompt生成、打分规则）。
+LangGraph：存储结构化知识（需求/测试点/用例关联）、加速推理（如依赖关系扩展）、保障追溯性（全生命周期数据关联）。

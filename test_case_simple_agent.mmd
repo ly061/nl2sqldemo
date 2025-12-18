@@ -1,0 +1,23 @@
+---
+config:
+  flowchart:
+    curve: linear
+---
+graph TD;
+	__start__([<p>__start__</p>]):::first
+	supervisor(supervisor)
+	test_case_generation_agent(test_case_generation_agent)
+	test_case_review_agent(test_case_review_agent)
+	test_case_generator(test_case_generator)
+	__end__([<p>__end__</p>]):::last
+	__start__ --> supervisor;
+	supervisor -. &nbsp;end&nbsp; .-> __end__;
+	supervisor -.-> test_case_generation_agent;
+	supervisor -.-> test_case_generator;
+	supervisor -.-> test_case_review_agent;
+	test_case_generation_agent --> supervisor;
+	test_case_review_agent --> supervisor;
+	test_case_generator --> __end__;
+	classDef default fill:#f2f0ff,line-height:1.2
+	classDef first fill-opacity:0
+	classDef last fill:#bfb6fc

@@ -4,7 +4,10 @@
     "openai": "^3.2.1"
   },
   "graphs": {
-    "agent": "./source/agent/sql_agent.py:agent"
+    "agent": "./source/agent/sql_agent.py:agent",
+    "test_case_agent": "./source/agent/test_case_agent.py:agent",
+    "test_case_multi_agent": "./source/agent/test_case_multi_agent.py:agent",
+    "test_case_simple_agent": "./source/agent/test_case_simple_agent.py:agent"
   },
   "env": ".env"
 
