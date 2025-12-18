@@ -4,6 +4,7 @@ python-dotenv==1.2.1
 langchain-deepseek==1.0.1
 langgraph-cli[inmem]==0.4.8
 langgraph-sdk>=0.3.0
+langgraph-supervisor>=0.0.31
 tavily-python==0.7.15
 sqlalchemy
 pymysql
