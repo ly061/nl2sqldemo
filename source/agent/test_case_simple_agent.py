@@ -142,7 +142,8 @@ def create_test_case_generation_agent_graph():
   }}
 ]"""
     
-    return create_agent(
+    # 使用 create_react_agent 创建 LangGraph agent，并指定名称
+    return create_react_agent(
         model=llm,
         tools=[save_test_cases],
         prompt=system_prompt,
@@ -172,7 +173,8 @@ def create_test_case_review_agent_graph():
 
 评审要严格、客观，确保测试用例质量。"""
     
-    return create_agent(
+    # 使用 create_react_agent 创建 LangGraph agent，并指定名称
+    return create_react_agent(
         model=llm,
         tools=[get_test_cases, save_review_result],
         prompt=system_prompt,
@@ -241,160 +243,3 @@ def create_supervisor_system():
 agent = create_supervisor_system()
 
 
-# ==================== 辅助函数 ====================
-
-def run_test_case_generation(requirement_doc: str, thread_id: str = "default") -> dict:
-    """
-    运行测试用例生成流程
-    
-    Args:
-        requirement_doc: 原始需求文档
-        thread_id: 线程ID（用于状态管理）
-    
-    Returns:
-        包含最终结果的字典
-    """
-    # 初始化全局状态
-    initial_global_state = {
-        "original_requirement": requirement_doc,
-        "test_cases": [],
-        "review_result": None,
-        "iteration_count": 0,
-        "optimization_suggestions": [],
-    }
-    set_global_state(initial_global_state)
-    
-    # 初始化 Supervisor 状态（Supervisor 使用标准的 messages 状态）
-    initial_state = {
-        "messages": [HumanMessage(content=f"请根据以下需求文档生成测试用例：\n\n{requirement_doc}")],
-    }
-    
-    config = {"configurable": {"thread_id": thread_id}}
-    
-    # 运行流程
-    final_state = None
-    for step in agent.stream(initial_state, config=config, stream_mode="updates"):
-        for node_name, node_output in step.items():
-            log.info(f"节点 {node_name} 执行完成")
-            final_state = node_output
-    
-    # 生成最终文档
-    if final_state:
-        # 从全局状态获取数据
-        global_state = get_global_state()
-        test_cases = global_state.get("test_cases", [])
-        review_result = global_state.get("review_result")
-        original_requirement = global_state.get("original_requirement", requirement_doc)
-        
-        # 从消息中提取数据（备用）
-        messages = final_state.get("messages", [])
-        for msg in reversed(messages):
-            if hasattr(msg, 'content'):
-                content = str(msg.content)
-                # 尝试提取测试用例
-                if not test_cases and ("test_cases" in content.lower() or "测试用例" in content):
-                    try:
-                        import re
-                        json_match = re.search(r'\[.*\]', content, re.DOTALL)
-                        if json_match:
-                            test_cases_data = json.loads(json_match.group())
-                            if isinstance(test_cases_data, list):
-                                test_cases = test_cases_data
-                    except:
-                        pass
-                # 尝试提取评审结果
-                if not review_result and ("review_result" in content.lower() or "评审" in content or "score" in content.lower()):
-                    try:
-                        import re
-                        json_match = re.search(r'\{.*\}', content, re.DOTALL)
-                        if json_match:
-                            review_data = json.loads(json_match.group())
-                            if "score" in review_data:
-                                review_result = review_data
-                    except:
-                        pass
-        
-        if test_cases:
-            # 生成 Markdown 格式的测试用例文档
-            output_lines = [
-                "# 测试用例文档",
-                f"\n生成时间: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                "\n## 1. 需求概述",
-                f"\n{original_requirement}",
-                "\n## 2. 测试用例",
-            ]
-            
-            # 按测试类型分组
-            test_cases_by_type = {}
-            for tc in test_cases:
-                test_type = tc.get("test_type", "其他")
-                if test_type not in test_cases_by_type:
-                    test_cases_by_type[test_type] = []
-                test_cases_by_type[test_type].append(tc)
-            
-            # 添加测试用例
-            for test_type, cases in test_cases_by_type.items():
-                output_lines.append(f"\n### {test_type}")
-                for tc in cases:
-                    output_lines.extend([
-                        f"\n#### 测试用例 {tc.get('test_case_id', 'N/A')}",
-                        f"**测试描述**: {tc.get('test_description', 'N/A')}",
-                        f"**优先级**: {tc.get('priority', 'N/A')}",
-                        f"**前置条件**: {tc.get('preconditions', '无')}",
-                        f"\n**测试步骤**:",
-                    ])
-                    for idx, step in enumerate(tc.get("test_steps", []), 1):
-                        output_lines.append(f"{idx}. {step}")
-                    output_lines.append(f"\n**预期结果**: {tc.get('expected_result', 'N/A')}")
-            
-            # 添加评审信息
-            if review_result:
-                output_lines.extend([
-                    "\n## 3. 评审结果",
-                    f"**总分**: {review_result.get('score', 0)}/100",
-                    f"**覆盖率**: {review_result.get('coverage_score', 0)}/100",
-                    f"**可执行性**: {review_result.get('executability_score', 0)}/100",
-                    f"**无歧义性**: {review_result.get('clarity_score', 0)}/100",
-                    f"**评审结果**: {'通过' if review_result.get('is_passed', False) else '不通过'}",
-                ])
-                if review_result.get("suggestions"):
-                    output_lines.append("\n**优化建议**:")
-                    for suggestion in review_result["suggestions"]:
-                        output_lines.append(f"- {suggestion}")
-            
-            # 将最终输出添加到结果中
-            result = {
-                "messages": final_state.get("messages", []),
-                "test_cases": test_cases,
-                "review_result": review_result,
-                "final_output": "\n".join(output_lines),
-            }
-            return result
-    
-    return final_state or {}
-
-
-if __name__ == "__main__":
-    # 示例：运行测试用例生成
-    sample_requirement = """
-    用户登录功能需求：
-    1. 用户可以通过用户名和密码登录系统
-    2. 用户名长度为3-20个字符，只能包含字母、数字和下划线
-    3. 密码长度为6-20个字符，必须包含至少一个数字和一个字母
-    4. 登录失败3次后，账户将被锁定30分钟
-    5. 登录成功后，系统应记录登录时间和IP地址
-    """
-    
-    result = run_test_case_generation(sample_requirement, thread_id="test_001")
-    
-    print("\n" + "="*60)
-    print("测试用例生成完成！")
-    print("="*60)
-    
-    if result.get("final_output"):
-        print("\n最终输出：")
-        print(result["final_output"][:500] + "...")
-    
-    if result.get("review_result"):
-        review = result["review_result"]
-        print(f"\n评审结果：得分 {review.get('score', 0)}/100，{'通过' if review.get('is_passed', False) else '不通过'}")
