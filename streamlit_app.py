@@ -166,23 +166,11 @@ def process_message(user_input, uploaded_file_path=None):
     try:
         # 如果有上传的文件，先解析Word文档
         if uploaded_file_path:
-            # 直接使用底层函数，避免调用 @tool 装饰的工具对象
-            from source.agent.tools.tool_word_parser import _parse_word_from_path
-            from pathlib import Path
+            from source.agent.tools.tool_word_parser import parse_word_document
             with st.spinner("正在解析Word文档..."):
-                doc_path = Path(uploaded_file_path)
-                paragraphs, tables_content = _parse_word_from_path(doc_path)
-                
-                # 组合内容
-                content_parts = []
-                if paragraphs:
-                    content_parts.append("\n".join(paragraphs))
-                if tables_content:
-                    content_parts.append("\n\n表格内容：\n" + "\n\n".join(tables_content))
-                
-                word_content = "\n\n".join(content_parts) if content_parts else "文档为空"
+                word_content = parse_word_document(uploaded_file_path)
                 # 将解析的内容添加到用户输入中
-                user_input = f"{user_input}\n\n[Word文档内容]\n{word_content}"
+                user_input = f"{user_input}\n\n{word_content}"
         
         # 构建消息
         messages = [HumanMessage(content=user_input)]
@@ -323,35 +311,34 @@ for message in st.session_state.messages:
 # 底部输入区域 - 固定在底部
 st.markdown("---")
 
-# 输入区域布局
-input_col1, input_col2, input_col3, input_col4 = st.columns([6, 1, 1, 1])
+# 输入区域布局 - 清空按钮在中间
+input_col1, input_col2, input_col3 = st.columns([6, 1, 3])
 
 with input_col1:
     user_input = st.chat_input("Type your message...", key="main_input")
 
 with input_col2:
-    st.write("")  # 占位
-    # 文件上传按钮
-    uploaded_file = st.file_uploader(
-        "",
-        type=["docx", "doc"],
-        key="file_uploader",
-        label_visibility="collapsed"
-    )
-    if uploaded_file:
-        st.session_state.uploaded_file = uploaded_file
-
-with input_col3:
-    st.write("")  # 占位
-    st.write("")  # 占位
-
-with input_col4:
-    st.write("")  # 占位
+    # 清空按钮放在中间
     if st.button("清空", use_container_width=True, type="secondary"):
         st.session_state.messages = []
         st.session_state.thread_id = None
         st.session_state.uploaded_file = None
         st.rerun()
+
+with input_col3:
+    # 文件上传放到可展开组件中
+    with st.expander("📎 上传文件", expanded=False):
+        uploaded_file = st.file_uploader(
+            "选择Word文档",
+            type=["docx", "doc"],
+            key="file_uploader",
+            help="支持 .docx 和 .doc 格式的Word文档"
+        )
+        if uploaded_file:
+            st.session_state.uploaded_file = uploaded_file
+            st.success(f"✅ 已上传: {uploaded_file.name}")
+        else:
+            st.info("请选择要上传的Word文档")
 
 # 处理用户输入
 if user_input:
