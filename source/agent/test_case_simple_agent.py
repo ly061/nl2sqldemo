@@ -23,8 +23,10 @@ from langgraph_supervisor import create_supervisor
 from langgraph.graph import StateGraph, END
 from langgraph.graph.message import add_messages
 
-from source.agent.llm import llm
+from source.agent.llm_wrapper import llm
 from source.agent.utils.log_utils import MyLogger
+from source.agent.tools.tool_word_parser import parse_word_document
+from source.agent.tools.tool_excel_generator import generate_excel_from_test_cases
 
 load_dotenv()
 log = MyLogger().get_logger()
@@ -107,13 +109,26 @@ def save_review_result(review_result_json: str) -> str:
         return f"保存失败: {str(e)}"
 
 
+@tool
+def get_review_result() -> str:
+    """获取已保存的评审结果
+    
+    Returns:
+        JSON格式的评审结果
+    """
+    state = get_global_state()
+    review_result = state.get("review_result", {})
+    return json.dumps(review_result, ensure_ascii=False)
+
+
 # ==================== 创建各个专家 Agent ====================
 
 def create_test_case_generation_agent_graph():
     """创建测试用例生成专家 Agent（LangGraph 格式）"""
     system_prompt = """你是一个专业的测试用例生成专家。你的任务是：
-1. 仔细分析用户提供的需求文档
-2. 直接生成详细的测试用例，包括：
+1. 如果用户提供了Word文档路径，首先使用 parse_word_document 工具解析Word文档内容
+2. 仔细分析用户提供的需求文档（可能是文本内容或Word文档解析结果）
+3. 直接生成详细的测试用例，包括：
    - test_case_id: 测试用例ID（格式：TC_001, TC_002...）
    - test_type: 测试类型（功能测试/边界测试/异常测试等）
    - test_description: 测试用例描述
@@ -121,13 +136,13 @@ def create_test_case_generation_agent_graph():
    - expected_result: 明确的预期结果
    - priority: 优先级（高/中/低）
    - preconditions: 前置条件（可选）
-3. 测试用例应该：
+4. 测试用例应该：
    - 覆盖正常场景、边界场景和异常场景
    - 步骤完整、可执行
    - 预期结果明确、无歧义
    - 易于理解和维护
-4. 将测试用例以JSON数组格式输出
-5. 使用 save_test_cases 工具保存测试用例
+5. 将测试用例以JSON数组格式输出
+6. 使用 save_test_cases 工具保存测试用例
 
 输出格式示例：
 [
@@ -145,7 +160,7 @@ def create_test_case_generation_agent_graph():
     # 使用 create_react_agent 创建 LangGraph agent，并指定名称
     return create_react_agent(
         model=llm,
-        tools=[save_test_cases],
+        tools=[save_test_cases, parse_word_document],
         prompt=system_prompt,
         name="test_case_generation_agent",
     )
@@ -182,6 +197,28 @@ def create_test_case_review_agent_graph():
     )
 
 
+def create_excel_generation_agent_graph():
+    """创建Excel生成专家 Agent（LangGraph 格式）"""
+    system_prompt = """你是一个Excel文件生成专家。你的任务是：
+1. 使用 get_test_cases 工具获取测试用例
+2. 使用 get_review_result 工具获取评审结果（如果有）
+3. 使用 generate_excel_from_test_cases 工具生成Excel文件
+   - 第一个参数：test_cases_json（从get_test_cases获取的JSON字符串）
+   - 第二个参数：output_path（可选，如果不提供会自动生成）
+   - 第三个参数：review_result_json（从get_review_result获取的JSON字符串，如果有的话）
+4. 将测试用例和评审结果导出为格式化的Excel文件，方便用户查看和使用
+
+重要：调用generate_excel_from_test_cases时，需要传递JSON字符串，不要传递对象。"""
+    
+    # 使用 create_react_agent 创建 LangGraph agent，并指定名称
+    return create_react_agent(
+        model=llm,
+        tools=[get_test_cases, get_review_result, generate_excel_from_test_cases],
+        prompt=system_prompt,
+        name="excel_generation_agent",
+    )
+
+
 # ==================== 创建 Supervisor 系统 ====================
 
 def create_supervisor_system():
@@ -190,21 +227,24 @@ def create_supervisor_system():
     # 创建各个专家 Agent
     test_case_generation_agent = create_test_case_generation_agent_graph()
     test_case_review_agent = create_test_case_review_agent_graph()
+    excel_generation_agent = create_excel_generation_agent_graph()
     
     # 创建 Supervisor
     workflow = create_supervisor(
-        agents=[test_case_generation_agent, test_case_review_agent],
+        agents=[test_case_generation_agent, test_case_review_agent, excel_generation_agent],
         model=llm,
-        prompt="""你是一个测试用例生成系统的 Supervisor（协调者）。你的任务是协调两个专家 Agent：
+        prompt="""你是一个测试用例生成系统的 Supervisor（协调者）。你的任务是协调三个专家 Agent：
 
-1. test_case_generation_agent（测试用例生成专家）：负责根据需求文档生成测试用例
+1. test_case_generation_agent（测试用例生成专家）：负责根据需求文档生成测试用例。如果用户提供了Word文档路径，该Agent会自动解析Word文档。
 2. test_case_review_agent（测试用例评审专家）：负责评审测试用例的质量
+3. excel_generation_agent（Excel生成专家）：负责将测试用例和评审结果导出为Excel文件
 
 工作流程：
-1. 当用户提供需求文档时，首先调用 test_case_generation_agent 生成测试用例
+1. 当用户提供需求文档（文本或Word文档路径）时，首先调用 test_case_generation_agent 生成测试用例
 2. 然后调用 test_case_review_agent 评审测试用例
-3. 如果评审通过（分数>=80），任务完成
+3. 如果评审通过（分数>=80），调用 excel_generation_agent 生成Excel文件，然后任务完成
 4. 如果评审不通过（分数<80），将评审建议反馈给 test_case_generation_agent 进行优化，最多迭代3次
+5. 如果迭代3次后仍不通过，也要调用 excel_generation_agent 生成Excel文件（包含当前结果），然后任务完成
 
 请根据当前状态和任务进度，智能地决定调用哪个 Agent 或完成任务。""",
         supervisor_name="supervisor",
