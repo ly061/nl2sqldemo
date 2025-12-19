@@ -58,3 +58,7 @@ source/agent/logs/
 # LangGraph
 .langgraph_api/
 
+# Downloads (generated files)
+downloads/*.xlsx
+!downloads/.gitkeep
+

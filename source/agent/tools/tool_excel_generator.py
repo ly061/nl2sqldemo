@@ -64,7 +64,12 @@ def generate_excel_from_test_cases(
         if not output_path:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             project_root = Path(__file__).parent.parent.parent.parent
-            output_path = str(project_root / f"测试用例_{timestamp}.xlsx")
+            downloads_dir = project_root / "downloads"
+            downloads_dir.mkdir(parents=True, exist_ok=True)
+            filename = f"测试用例_{timestamp}.xlsx"
+            output_path = str(downloads_dir / filename)
+        else:
+            filename = Path(output_path).name
         
         output_file = Path(output_path)
         output_file.parent.mkdir(parents=True, exist_ok=True)
@@ -182,9 +187,24 @@ def generate_excel_from_test_cases(
         # 保存Excel文件
         wb.save(output_path)
         
+        # 生成下载链接（使用相对路径，前端会处理完整URL）
+        filename = Path(output_path).name
+        download_url = f"/api/download/{filename}"
+        
         log.info(f"成功生成Excel文件: {output_path}，包含 {len(test_cases)} 个测试用例")
         
-        return f"Excel文件已成功生成！\n文件路径: {output_path}\n包含测试用例数量: {len(test_cases)}"
+        return f"""Excel文件已成功生成！
+
+📊 **文件信息：**
+- 文件名：{filename}
+- 包含测试用例数量：{len(test_cases)}
+- 文件路径：{output_path}
+
+🔗 **下载链接：**
+[点击下载Excel文件]({download_url})
+
+💡 提示：如果链接无法点击，请复制以下URL到浏览器中打开：
+{download_url}"""
     
     except Exception as e:
         error_msg = f"生成Excel文件失败: {str(e)}"
