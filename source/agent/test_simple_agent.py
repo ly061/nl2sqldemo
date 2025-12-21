@@ -32,10 +32,11 @@ def main():
     print("="*60)
     print(f"\n需求文档：\n{sample_requirement}\n")
     
-    # 初始化状态
-    initial_state = {
-        "messages": [HumanMessage(content=f"请根据以下需求文档生成测试用例：\n\n{sample_requirement}")],
-    }
+    # 初始化状态（使用 AgentState 结构）
+    from source.agent.test_case_simple_agent import initialize_state
+    
+    initial_state = initialize_state(max_iterations=3)
+    initial_state["messages"] = [HumanMessage(content=f"请根据以下需求文档生成测试用例：\n\n{sample_requirement}")]
     
     config = {"configurable": {"thread_id": "test_001"}}
     
