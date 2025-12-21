@@ -15,7 +15,7 @@ if str(project_root) not in sys.path:
 
 from dotenv import load_dotenv
 from langchain_core.tools import tool
-from langgraph.prebuilt import create_react_agent
+from langchain.agents import create_agent
 from langgraph_supervisor import create_supervisor
 from langgraph.graph.message import add_messages
 
@@ -250,10 +250,10 @@ def create_test_case_generation_agent_graph():
 ]"""
     
     # 使用 create_react_agent 创建 LangGraph agent，并指定名称
-    return create_react_agent(
+    return create_agent(
         model=llm,
         tools=[save_test_cases, parse_word_document],
-        prompt=system_prompt,
+        system_prompt=system_prompt,
         name="test_case_generation_agent",
     )
 
@@ -284,10 +284,10 @@ def create_test_case_review_agent_graph():
 评审要严格、客观，确保测试用例质量。你只需要评审，不需要生成Excel文件。"""
     
     # 使用 create_react_agent 创建 LangGraph agent，并指定名称
-    return create_react_agent(
+    return create_agent(
         model=llm,
         tools=[get_test_cases, save_review_result],
-        prompt=system_prompt,
+        system_prompt=system_prompt,
         name="test_case_review_agent",
     )
 
@@ -314,6 +314,8 @@ def create_supervisor_system():
     
     # 创建 Supervisor（内部使用 messages 状态）
     # Supervisor 可以直接调用工具，包括 Excel 生成工具
+    # 注意：create_supervisor 会为每个 agent 创建 transfer_to_{agent_name} 工具
+    # 例如：transfer_to_test_case_generation_agent, transfer_to_test_case_review_agent
     supervisor_graph = create_supervisor(
         agents=[test_case_generation_agent, test_case_review_agent],
         model=llm,
