@@ -1,8 +1,7 @@
 #!/bin/bash
+# 启动 API 服务器
 
-# Streamlit应用启动脚本
-
-echo "🚀 启动测试用例生成系统..."
+echo "🚀 启动测试用例生成 API 服务..."
 
 # 获取脚本所在目录
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,13 +23,21 @@ if [ -z "$VIRTUAL_ENV" ]; then
     fi
 fi
 
-# 确定 Python 和 pip 命令
+# 确定 pip 命令
+if command -v pip &> /dev/null; then
+    PIP_CMD="pip"
+elif [ -f "$VENV_DIR/bin/pip" ]; then
+    PIP_CMD="$VENV_DIR/bin/pip"
+else
+    echo "❌ pip 未找到"
+    exit 1
+fi
+
+# 确定 python 命令
 if command -v python &> /dev/null; then
     PYTHON_CMD="python"
-    PIP_CMD="pip"
 elif [ -f "$VENV_DIR/bin/python" ]; then
     PYTHON_CMD="$VENV_DIR/bin/python"
-    PIP_CMD="$VENV_DIR/bin/pip"
 else
     echo "❌ Python 未找到"
     exit 1
@@ -48,29 +55,32 @@ echo "📦 安装/更新依赖..."
 $PIP_CMD install --upgrade pip -q
 $PIP_CMD install -r "$REQUIREMENTS_FILE" --upgrade
 
-# 检查 streamlit 命令是否可用
-if ! command -v streamlit &> /dev/null; then
-    if [ -f "$VENV_DIR/bin/streamlit" ]; then
-        echo "✅ 在虚拟环境中找到 streamlit，使用完整路径"
-        STREAMLIT_CMD="$VENV_DIR/bin/streamlit"
+# 检查 uvicorn 是否可用
+if ! command -v uvicorn &> /dev/null; then
+    if [ -f "$VENV_DIR/bin/uvicorn" ]; then
+        echo "✅ 在虚拟环境中找到 uvicorn，使用完整路径"
+        UVICORN_CMD="$VENV_DIR/bin/uvicorn"
     else
-        echo "❌ streamlit 未安装，请检查 requirements.txt"
+        echo "❌ uvicorn 未安装，请检查 requirements.txt"
         exit 1
     fi
 else
-    STREAMLIT_CMD="streamlit"
+    UVICORN_CMD="uvicorn"
 fi
 
-# 启动Streamlit应用
+# 默认使用 9000 端口
+PORT=${PORT:-9000}
+
+# 启动 FastAPI 应用
 echo ""
-echo "🎨 启动Streamlit应用..."
-echo "📍 应用地址: http://localhost:8501"
+echo "📍 API 地址: http://localhost:$PORT"
+echo "📖 API 文档: http://localhost:$PORT/docs"
 echo ""
 echo "💡 提示："
-echo "   - 确保 API 服务正在运行 (./run_api.sh)"
-echo "   - API 服务默认端口: 9000"
-echo "   - 按 Ctrl+C 停止应用"
+echo "   - 默认使用 9000 端口"
+echo "   - 可通过 PORT 环境变量修改端口: PORT=9001 ./run_api.sh"
+echo "   - 按 Ctrl+C 停止服务"
 echo ""
 
-$STREAMLIT_CMD run streamlit_app.py
+$UVICORN_CMD api.main:app --host 0.0.0.0 --port $PORT --reload
 
