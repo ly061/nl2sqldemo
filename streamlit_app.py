@@ -29,8 +29,8 @@ from api.schema import ChatMessage
 log = MyLogger().get_logger()
 
 # API 服务配置
-# 默认使用 9000 端口
-API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:9000")
+# 默认使用 9501 端口
+API_BASE_URL = os.getenv("API_BASE_URL", "http://localhost:9501")
 
 APP_TITLE = "测试用例生成系统"
 APP_ICON = "📋"
@@ -410,14 +410,14 @@ async def main() -> None:
             
             请确保API服务正在运行：
             ```bash
-            uvicorn api.main:app --host 0.0.0.0 --port 9000
+            uvicorn api.main:app --host 0.0.0.0 --port 9501
             ```
             
             当前配置的服务地址: `{API_BASE_URL}`
             
             您可以通过环境变量修改：
             ```bash
-            export API_BASE_URL=http://localhost:9000
+            export API_BASE_URL=http://localhost:9501
             ```
             """)
     

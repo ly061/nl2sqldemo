@@ -68,8 +68,8 @@ else
     UVICORN_CMD="uvicorn"
 fi
 
-# 默认使用 9000 端口
-PORT=${PORT:-9000}
+# 默认使用 9501 端口
+PORT=${PORT:-9501}
 
 # 启动 FastAPI 应用
 echo ""
@@ -77,8 +77,8 @@ echo "📍 API 地址: http://localhost:$PORT"
 echo "📖 API 文档: http://localhost:$PORT/docs"
 echo ""
 echo "💡 提示："
-echo "   - 默认使用 9000 端口"
-echo "   - 可通过 PORT 环境变量修改端口: PORT=9001 ./run_api.sh"
+echo "   - 默认使用 9501 端口"
+echo "   - 可通过 PORT 环境变量修改端口: PORT=9502 ./run_api.sh"
 echo "   - 按 Ctrl+C 停止服务"
 echo ""
 

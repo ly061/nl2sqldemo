@@ -15,7 +15,7 @@ class AgentClient:
     """Client for interacting with the agent service."""
 
     def __init__(
-        self, base_url: str = "http://localhost:9000", timeout: float | None = None
+        self, base_url: str = "http://localhost:9501", timeout: float | None = None
     ) -> None:
         """
         Initialize the client.

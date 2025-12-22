@@ -68,7 +68,7 @@ echo "📍 应用地址: http://localhost:8501"
 echo ""
 echo "💡 提示："
 echo "   - 确保 API 服务正在运行 (./run_api.sh)"
-echo "   - API 服务默认端口: 9000"
+echo "   - API 服务默认端口: 9501"
 echo "   - 按 Ctrl+C 停止应用"
 echo ""
 
