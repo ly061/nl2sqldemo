@@ -334,6 +334,10 @@ async def main() -> None:
     # REQUIRED: Set VOICE_STT_PROVIDER, VOICE_TTS_PROVIDER, OPENAI_API_KEY
     # in app .env (NOT service .env) to enable voice features.
     
+    # 初始化 file_uploader 的动态 key（用于重置上传组件）
+    if "file_uploader_key" not in st.session_state:
+        st.session_state.file_uploader_key = 0
+    
     # 创建并排布局：输入框和可折叠的文件上传在同一行
     if voice:
         user_input = voice.get_chat_input()
@@ -348,11 +352,12 @@ async def main() -> None:
         with col2:
             # 使用 popover 创建可折叠的文件上传
             with st.popover("📄", use_container_width=True, help="上传 Word 文档"):
+                # 使用动态 key，这样可以通过改变 key 来重置上传组件
                 uploaded_file = st.file_uploader(
                     "上传 Word 需求文档",
                     type=['docx'],
                     help="支持上传 Word 文档，系统会自动解析文档内容并用于生成测试用例",
-                    key="word_file_uploader"
+                    key=f"word_file_uploader_{st.session_state.file_uploader_key}"
                 )
                 if uploaded_file is not None:
                     st.success(f"✅ 已上传: {uploaded_file.name}")
@@ -395,10 +400,16 @@ async def main() -> None:
     if processed_input:
         messages.append(ChatMessage(type="human", content=processed_input))
         st.chat_message("human").write(processed_input)
-        # 清除文件状态，准备下次上传（可选：如果想保留文件，可以注释掉这部分）
-        # if "uploaded_file_content" in st.session_state:
-        #     del st.session_state.uploaded_file_content
-        #     del st.session_state.uploaded_file_name
+        # 清除文件状态，确保下次消息不再携带文档内容
+        # 同时增加 file_uploader_key 来重置上传组件
+        if "uploaded_file_content" in st.session_state:
+            del st.session_state.uploaded_file_content
+            # 增加 key 来重置 file_uploader 组件
+            st.session_state.file_uploader_key = st.session_state.get("file_uploader_key", 0) + 1
+        if "uploaded_file_name" in st.session_state:
+            del st.session_state.uploaded_file_name
+        if "file_parsed" in st.session_state:
+            del st.session_state.file_parsed
         try:
             if use_streaming:
                 stream = agent_client.astream(
