@@ -325,8 +325,8 @@ def create_supervisor_system():
     supervisor_workflow = supervisor_graph.compile()
     
     # 创建状态同步节点函数
-    # 使用闭包保存 supervisor_workflow 的引用和 thread_id
-    _supervisor_thread_id = "supervisor_main_thread"  # 固定的 thread_id，保持状态连续性
+    # 使用闭包保存 supervisor_workflow 的引用
+    import uuid
     
     def supervisor_node_with_state_sync(state: AgentState) -> AgentState:
         """Supervisor 节点包装器：在调用前后同步状态（线程安全）
@@ -339,10 +339,7 @@ def create_supervisor_system():
         线程安全保证：
         - 使用 contextvars 存储状态，每个请求/协程有独立的上下文
         - 不同请求之间的状态完全隔离，不会互相干扰
-        
-        关键修复：
-        - 使用 stream 模式而不是 invoke，保持状态连续性
-        - 使用固定的 thread_id，确保 supervisor_workflow 保持内部状态（包括工具列表）
+        - 每个请求使用唯一的 thread_id，避免并发冲突
         """
         # 1. 从 Graph State 同步到上下文变量（线程安全，供工具函数使用）
         sync_state_from_graph(state)
@@ -350,9 +347,10 @@ def create_supervisor_system():
         # 2. 调用原始的 Supervisor workflow（它使用 messages 状态）
         supervisor_state = {"messages": state.get("messages", [])}
         
-        # 关键：使用固定的 thread_id 保持状态连续性
-        # 这样 supervisor_workflow 可以保持内部状态，包括为每个 agent 添加的 transfer_to_xxx 工具
-        config = {"configurable": {"thread_id": _supervisor_thread_id}}
+        # 为每个请求生成唯一的 thread_id，确保并发安全
+        # 同一个请求内的多次调用使用相同的 thread_id（通过 contextvars 管理）
+        request_thread_id = f"supervisor_{uuid.uuid4().hex[:8]}"
+        config = {"configurable": {"thread_id": request_thread_id}}
         
         try:
             # 使用 stream 模式保持状态连续性
