@@ -63,3 +63,5 @@ downloads/*.xlsx
 !downloads/.gitkeep
 
 test_case_simple_agent.png
+# PID files
+*.pid
