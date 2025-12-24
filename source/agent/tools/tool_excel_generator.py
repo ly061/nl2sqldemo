@@ -3,6 +3,8 @@ Excel生成工具
 用于将测试用例生成结果导出为Excel文件
 """
 import json
+import os
+import urllib.parse
 from pathlib import Path
 from datetime import datetime
 from typing import List, Dict, Any, Optional
@@ -187,9 +189,15 @@ def generate_excel_from_test_cases(
         # 保存Excel文件
         wb.save(output_path)
         
-        # 生成下载链接（使用相对路径，前端会处理完整URL）
+        # 生成下载链接
+        # 注意：链接应该指向 FastAPI 后端（端口 9501），而不是 Streamlit（端口 8501）
         filename = Path(output_path).name
-        download_url = f"/api/download/{filename}"
+        # URL 编码文件名以支持中文
+        encoded_filename = urllib.parse.quote(filename, safe='')
+        # 使用完整的后端 API 地址
+        import os
+        api_base_url = os.getenv("API_BASE_URL", "http://localhost:9501")
+        download_url = f"{api_base_url}/api/download/{encoded_filename}"
         
         log.info(f"成功生成Excel文件: {output_path}，包含 {len(test_cases)} 个测试用例")
         

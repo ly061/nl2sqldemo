@@ -1,9 +1,11 @@
 import logging
+from pathlib import Path
 from fastapi import APIRouter, HTTPException, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, FileResponse
 from langchain_core.runnables import RunnableConfig
 from langchain_core.messages import AIMessage, AnyMessage
 from typing import Any
+import urllib.parse
 
 from source.agent.test_case_simple_agent import agent
 from api.schema import ChatMessage, UserInput, ChatHistoryInput, ChatHistory
@@ -16,6 +18,11 @@ from api.utils.message_utils import (
 logger = logging.getLogger(__name__)
 
 api_router = APIRouter()
+
+# 获取项目根目录
+# api/routes.py -> api/ -> langgraphDemo/
+PROJECT_ROOT = Path(__file__).parent.parent
+DOWNLOADS_DIR = PROJECT_ROOT / "downloads"
 
 
 def _sse_response_example() -> dict[int | str, Any]:
