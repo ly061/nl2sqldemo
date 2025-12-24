@@ -6,6 +6,7 @@
 import sys
 import json
 import contextvars
+import time
 from pathlib import Path
 from typing import TypedDict, Annotated, List, Optional, Dict, Any
 
@@ -329,37 +330,26 @@ def create_supervisor_system():
     import uuid
     
     def supervisor_node_with_state_sync(state: AgentState) -> AgentState:
-        """Supervisor 节点包装器：在调用前后同步状态（线程安全）
+        """Supervisor 节点包装器：在调用前后同步状态（线程安全）"""
+        start_time = time.time()
+        log.info("--- Supervisor 流程开始 ---")
         
-        这个函数确保：
-        1. 在调用 Supervisor 之前，将 Graph State 同步到上下文变量（供工具函数使用）
-        2. 调用 Supervisor workflow（使用 stream 模式和固定的 thread_id 保持状态连续性）
-        3. 在调用之后，将上下文变量中的状态同步回 Graph State
-        
-        线程安全保证：
-        - 使用 contextvars 存储状态，每个请求/协程有独立的上下文
-        - 不同请求之间的状态完全隔离，不会互相干扰
-        - 每个请求使用唯一的 thread_id，避免并发冲突
-        """
-        # 1. 从 Graph State 同步到上下文变量（线程安全，供工具函数使用）
+        # 1. 从 Graph State 同步到上下文变量
         sync_state_from_graph(state)
         
-        # 2. 调用原始的 Supervisor workflow（它使用 messages 状态）
+        # 2. 调用原始的 Supervisor workflow
         supervisor_state = {"messages": state.get("messages", [])}
-        
-        # 为每个请求生成唯一的 thread_id，确保并发安全
-        # 同一个请求内的多次调用使用相同的 thread_id（通过 contextvars 管理）
         request_thread_id = f"supervisor_{uuid.uuid4().hex[:8]}"
         config = {"configurable": {"thread_id": request_thread_id}}
         
         try:
-            # 使用 stream 模式保持状态连续性
-            # stream 模式可以保持 supervisor_workflow 的内部状态，包括工具列表
-            # 这确保了每次调用时，agent 都能访问到完整的工具列表（包括 transfer_to_xxx 工具）
+            workflow_start_time = time.time()
             last_chunk = None
             for chunk in supervisor_workflow.stream(supervisor_state, config=config):
-                # 收集最后一个 chunk 作为结果
                 last_chunk = chunk
+                # 打印节点执行日志以便分析耗时
+                for node_name in chunk.keys():
+                    log.info(f"子节点 [{node_name}] 执行完成，累计耗时: {time.time() - workflow_start_time:.2f}s")
             
             # 从最后一个 chunk 提取 messages
             if last_chunk:
@@ -374,11 +364,12 @@ def create_supervisor_system():
                 
         except Exception as e:
             log.error(f"Supervisor 执行失败: {e}", exc_info=True)
-            import traceback
-            log.error(traceback.format_exc())
         
         # 3. 从上下文变量同步回 Graph State（线程安全）
         updated_state = sync_state_to_graph(state)
+        
+        duration = time.time() - start_time
+        log.info(f"--- Supervisor 流程结束，总耗时: {duration:.2f}s ---")
         return updated_state
     
     # 创建自定义 StateGraph，使用我们的 AgentState
@@ -451,5 +442,3 @@ def initialize_state(max_iterations: int = 3) -> AgentState:
     
     log.info(f"状态已初始化: max_iterations={max_iterations}")
     return initial_state
-
-
