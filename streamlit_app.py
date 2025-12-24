@@ -162,7 +162,7 @@ async def main() -> None:
         menu_items={},
     )
 
-    # Hide the streamlit upper-right chrome
+    # Hide the streamlit upper-right chrome and add thinking animation
     st.html(
         """
         <style>
@@ -171,6 +171,63 @@ async def main() -> None:
                 height: 0%;
                 position: fixed;
             }
+        
+        /* Thinking animation styles */
+        .thinking-container {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 0;
+        }
+        
+        .thinking-dots {
+            display: flex;
+            gap: 4px;
+        }
+        
+        .thinking-dots span {
+            width: 8px;
+            height: 8px;
+            background-color: #6366f1;
+            border-radius: 50%;
+            animation: bounce 1.4s infinite ease-in-out both;
+        }
+        
+        .thinking-dots span:nth-child(1) {
+            animation-delay: -0.32s;
+        }
+        
+        .thinking-dots span:nth-child(2) {
+            animation-delay: -0.16s;
+        }
+        
+        .thinking-dots span:nth-child(3) {
+            animation-delay: 0s;
+        }
+        
+        @keyframes bounce {
+            0%, 80%, 100% {
+                transform: scale(0);
+            }
+            40% {
+                transform: scale(1);
+            }
+        }
+        
+        .thinking-text {
+            color: #6366f1;
+            font-weight: 500;
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.5;
+            }
+        }
         </style>
         """,
     )
@@ -422,9 +479,34 @@ async def draw_messages(
     # Placeholder for intermediate streaming tokens
     streaming_content = ""
     streaming_placeholder = None
+    
+    # Thinking indicator for new messages
+    thinking_placeholder = None
+    if is_new:
+        # Show thinking indicator while waiting for AI response
+        st.session_state.last_message = st.chat_message("ai")
+        with st.session_state.last_message:
+            thinking_placeholder = st.empty()
+            # Use animated thinking indicator
+            thinking_placeholder.html("""
+                <div class="thinking-container">
+                    <div class="thinking-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </div>
+                    <span class="thinking-text">AI 正在思考...</span>
+                </div>
+            """)
+        last_message_type = "ai"
 
     # Iterate over the messages and draw them
     while msg := await anext(messages_agen, None):
+        # Clear thinking indicator on first message received
+        if thinking_placeholder:
+            thinking_placeholder.empty()
+            thinking_placeholder = None
+            
         # str message represents an intermediate token being streamed
         if isinstance(msg, str):
             # If placeholder is empty, this is the first token of a new message
