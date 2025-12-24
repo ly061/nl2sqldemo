@@ -5,6 +5,7 @@
 """
 import sys
 import json
+import contextvars
 from pathlib import Path
 from typing import TypedDict, Annotated, List, Optional, Dict, Any
 
@@ -33,6 +34,16 @@ load_dotenv()
 log = MyLogger().get_logger()
 
 
+# ==================== 线程安全的上下文状态存储 ====================
+
+# 使用 contextvars 实现线程安全和协程安全的状态存储
+# 每个请求/协程都有独立的状态上下文，不会互相干扰
+_current_state: contextvars.ContextVar[Dict[str, Any]] = contextvars.ContextVar(
+    'current_state',
+    default=None
+)
+
+
 # ==================== 状态定义 ====================
 
 class ReviewResult(TypedDict):
@@ -54,49 +65,86 @@ class AgentState(TypedDict):
     max_iterations: int
 
 
-# ==================== 状态管理器 ====================
+# ==================== 线程安全的状态管理函数 ====================
 
-class StateManager:
-    """状态管理器：用于在工具函数和 Graph State 之间同步状态
+def _get_context_state() -> Dict[str, Any]:
+    """获取当前上下文的状态（线程安全）
     
-    由于工具函数在 Agent 内部调用，无法直接访问 Graph State，
-    我们使用这个管理器来桥接状态访问。
+    Returns:
+        当前上下文的状态字典，如果未初始化则返回默认状态
     """
-    def __init__(self):
-        self._state: Dict[str, Any] = {}
-    
-    def sync_from_graph_state(self, graph_state: Dict[str, Any]) -> None:
-        """从 Graph State 同步状态到管理器"""
-        self._state = {
-            "test_cases": graph_state.get("test_cases", []),
-            "review_result": graph_state.get("review_result"),
-            "iteration_count": graph_state.get("iteration_count", 0),
-            "max_iterations": graph_state.get("max_iterations", 3),
+    state = _current_state.get()
+    if state is None:
+        # 返回默认状态（不修改上下文变量）
+        return {
+            "test_cases": [],
+            "review_result": None,
+            "iteration_count": 0,
+            "max_iterations": 3,
         }
-        log.debug(f"状态已从 Graph State 同步: {list(self._state.keys())}")
+    return state
+
+
+def _set_context_state(state: Dict[str, Any]) -> None:
+    """设置当前上下文的状态（线程安全）
     
-    def sync_to_graph_state(self, graph_state: Dict[str, Any]) -> Dict[str, Any]:
-        """将管理器状态同步回 Graph State"""
-        graph_state.update(self._state)
-        return graph_state
+    Args:
+        state: 要设置的状态字典
+    """
+    _current_state.set(state)
+    log.debug(f"上下文状态已设置: {list(state.keys())}")
+
+
+def _update_context_state(updates: Dict[str, Any]) -> None:
+    """更新当前上下文的状态（线程安全）
     
-    def get_state(self) -> Dict[str, Any]:
-        """获取当前状态"""
-        return self._state.copy()
+    Args:
+        updates: 要更新的状态字段
+    """
+    current = _get_context_state()
+    current.update(updates)
+    _current_state.set(current)
+    log.debug(f"上下文状态已更新: {list(updates.keys())}")
+
+
+def sync_state_from_graph(graph_state: Dict[str, Any]) -> None:
+    """从 Graph State 同步状态到上下文变量（线程安全）
     
-    def update_state(self, updates: Dict[str, Any]) -> None:
-        """更新状态"""
-        self._state.update(updates)
-        log.debug(f"状态已更新: {list(updates.keys())}")
+    在进入 supervisor 节点时调用，确保工具函数可以访问当前状态。
+    
+    Args:
+        graph_state: LangGraph 的状态字典
+    """
+    context_state = {
+        "test_cases": graph_state.get("test_cases", []),
+        "review_result": graph_state.get("review_result"),
+        "iteration_count": graph_state.get("iteration_count", 0),
+        "max_iterations": graph_state.get("max_iterations", 3),
+    }
+    _set_context_state(context_state)
+    log.debug(f"状态已从 Graph State 同步到上下文: test_cases={len(context_state['test_cases'])} 个")
 
 
-# 全局状态管理器实例（线程安全通过 LangGraph 的线程隔离保证）
-_state_manager = StateManager()
-
-
-def get_state_manager() -> StateManager:
-    """获取状态管理器实例"""
-    return _state_manager
+def sync_state_to_graph(graph_state: Dict[str, Any]) -> Dict[str, Any]:
+    """将上下文状态同步回 Graph State（线程安全）
+    
+    在退出 supervisor 节点时调用，确保状态变更被保存到 Graph State。
+    
+    Args:
+        graph_state: LangGraph 的状态字典
+    
+    Returns:
+        更新后的 Graph State
+    """
+    context_state = _get_context_state()
+    graph_state.update({
+        "test_cases": context_state.get("test_cases", []),
+        "review_result": context_state.get("review_result"),
+        "iteration_count": context_state.get("iteration_count", 0),
+        "max_iterations": context_state.get("max_iterations", 3),
+    })
+    log.debug(f"状态已从上下文同步回 Graph State: test_cases={len(context_state.get('test_cases', []))} 个")
+    return graph_state
 
 
 @tool
@@ -111,8 +159,7 @@ def save_test_cases(test_cases_json: str) -> str:
     """
     try:
         data = json.loads(test_cases_json)
-        state_manager = get_state_manager()
-        state = state_manager.get_state()
+        state = _get_context_state()
         
         # 规范化数据格式
         if isinstance(data, dict):
@@ -122,8 +169,8 @@ def save_test_cases(test_cases_json: str) -> str:
         else:
             test_cases = [data]
         
-        # 更新状态
-        state_manager.update_state({
+        # 更新上下文状态（线程安全）
+        _update_context_state({
             "test_cases": test_cases,
             "iteration_count": state.get("iteration_count", 0) + 1
         })
@@ -147,8 +194,7 @@ def get_test_cases() -> str:
         JSON格式的测试用例列表
     """
     try:
-        state_manager = get_state_manager()
-        state = state_manager.get_state()
+        state = _get_context_state()
         test_cases = state.get("test_cases", [])
         
         if not test_cases:
@@ -172,7 +218,6 @@ def save_review_result(review_result_json: str) -> str:
     """
     try:
         data = json.loads(review_result_json)
-        state_manager = get_state_manager()
         
         # 验证必需字段
         required_fields = ["score", "coverage_score", "executability_score", 
@@ -181,8 +226,8 @@ def save_review_result(review_result_json: str) -> str:
         if missing_fields:
             return f"保存失败: 评审结果缺少必需字段: {missing_fields}"
         
-        # 更新状态
-        state_manager.update_state({"review_result": data})
+        # 更新上下文状态（线程安全）
+        _update_context_state({"review_result": data})
         
         score = data.get("score", 0)
         is_passed = data.get("is_passed", False)
@@ -204,8 +249,7 @@ def get_review_result() -> str:
         JSON格式的评审结果
     """
     try:
-        state_manager = get_state_manager()
-        state = state_manager.get_state()
+        state = _get_context_state()
         review_result = state.get("review_result")
         
         if not review_result:
@@ -285,22 +329,23 @@ def create_supervisor_system():
     _supervisor_thread_id = "supervisor_main_thread"  # 固定的 thread_id，保持状态连续性
     
     def supervisor_node_with_state_sync(state: AgentState) -> AgentState:
-        """Supervisor 节点包装器：在调用前后同步状态
+        """Supervisor 节点包装器：在调用前后同步状态（线程安全）
         
         这个函数确保：
-        1. 在调用 Supervisor 之前，将 Graph State 同步到 StateManager（供工具函数使用）
+        1. 在调用 Supervisor 之前，将 Graph State 同步到上下文变量（供工具函数使用）
         2. 调用 Supervisor workflow（使用 stream 模式和固定的 thread_id 保持状态连续性）
-        3. 在调用之后，将 StateManager 的状态同步回 Graph State
+        3. 在调用之后，将上下文变量中的状态同步回 Graph State
+        
+        线程安全保证：
+        - 使用 contextvars 存储状态，每个请求/协程有独立的上下文
+        - 不同请求之间的状态完全隔离，不会互相干扰
         
         关键修复：
         - 使用 stream 模式而不是 invoke，保持状态连续性
         - 使用固定的 thread_id，确保 supervisor_workflow 保持内部状态（包括工具列表）
-        - 这样每次调用时，supervisor_workflow 都能访问到完整的工具列表
         """
-        state_manager = get_state_manager()
-        
-        # 1. 从 Graph State 同步到 StateManager（供工具函数使用）
-        state_manager.sync_from_graph_state(state)
+        # 1. 从 Graph State 同步到上下文变量（线程安全，供工具函数使用）
+        sync_state_from_graph(state)
         
         # 2. 调用原始的 Supervisor workflow（它使用 messages 状态）
         supervisor_state = {"messages": state.get("messages", [])}
@@ -334,8 +379,8 @@ def create_supervisor_system():
             import traceback
             log.error(traceback.format_exc())
         
-        # 3. 从 StateManager 同步回 Graph State
-        updated_state = state_manager.sync_to_graph_state(state)
+        # 3. 从上下文变量同步回 Graph State（线程安全）
+        updated_state = sync_state_to_graph(state)
         return updated_state
     
     # 创建自定义 StateGraph，使用我们的 AgentState
@@ -387,7 +432,7 @@ agent = create_supervisor_system()
 # ==================== 辅助函数 ====================
 
 def initialize_state(max_iterations: int = 3) -> AgentState:
-    """初始化 Agent 状态
+    """初始化 Agent 状态（线程安全）
     
     Args:
         max_iterations: 最大迭代次数，默认 3
@@ -403,9 +448,8 @@ def initialize_state(max_iterations: int = 3) -> AgentState:
         "max_iterations": max_iterations,
     }
     
-    # 同步到 StateManager
-    state_manager = get_state_manager()
-    state_manager.sync_from_graph_state(initial_state)
+    # 同步到上下文变量（线程安全）
+    sync_state_from_graph(initial_state)
     
     log.info(f"状态已初始化: max_iterations={max_iterations}")
     return initial_state
