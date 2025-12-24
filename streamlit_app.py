@@ -537,6 +537,7 @@ async def draw_messages(
                             status = st.status(
                                 label,
                                 state="running" if is_new else "complete",
+                                expanded=False,  # 默认折叠
                             )
                             call_results[tool_call["id"]] = status
 
@@ -544,7 +545,7 @@ async def draw_messages(
                         for tool_call in msg.tool_calls:
                             if "transfer_to" in tool_call["name"]:
                                 status = call_results[tool_call["id"]]
-                                status.update(expanded=True)
+                                status.update(expanded=False)  # 默认折叠
                                 await handle_sub_agent_msgs(messages_agen, status, is_new)
                                 break
 
@@ -693,7 +694,7 @@ async def handle_sub_agent_msgs(messages_agen, status, is_new):
                         nested_status = status.status(
                             f"""💼 Sub Agent: {tc["name"]}""",
                             state="running" if is_new else "complete",
-                            expanded=True,
+                            expanded=False,  # 默认折叠
                         )
 
                         # Recursively handle sub-agents of this sub-agent
