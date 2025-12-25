@@ -345,25 +345,46 @@ def create_supervisor_system():
         try:
             workflow_start_time = time.time()
             last_chunk = None
-            for chunk in supervisor_workflow.stream(supervisor_state, config=config):
-                last_chunk = chunk
-                # 打印节点执行日志以便分析耗时
-                for node_name in chunk.keys():
-                    log.info(f"子节点 [{node_name}] 执行完成，累计耗时: {time.time() - workflow_start_time:.2f}s")
             
-            # 从最后一个 chunk 提取 messages
-            if last_chunk:
-                for node_name, node_output in last_chunk.items():
-                    if isinstance(node_output, dict) and "messages" in node_output:
-                        state["messages"] = node_output["messages"]
-                        break
-            else:
-                # 如果没有 stream 输出，fallback 到 invoke
-                result = supervisor_workflow.invoke(supervisor_state, config=config)
-                state["messages"] = result.get("messages", state.get("messages", []))
+            # 尝试使用流式模式（优先）
+            try:
+                for chunk in supervisor_workflow.stream(supervisor_state, config=config):
+                    last_chunk = chunk
+                    # 打印节点执行日志以便分析耗时
+                    for node_name in chunk.keys():
+                        log.info(f"子节点 [{node_name}] 执行完成，累计耗时: {time.time() - workflow_start_time:.2f}s")
+                
+                # 从最后一个 chunk 提取 messages
+                if last_chunk:
+                    for node_name, node_output in last_chunk.items():
+                        if isinstance(node_output, dict) and "messages" in node_output:
+                            state["messages"] = node_output["messages"]
+                            break
+                else:
+                    # 如果没有 stream 输出，fallback 到 invoke
+                    log.warning("流式输出为空，回退到 invoke 模式")
+                    result = supervisor_workflow.invoke(supervisor_state, config=config)
+                    state["messages"] = result.get("messages", state.get("messages", []))
+                    
+            except Exception as stream_error:
+                # 捕获流式处理错误（如 "No generations found in stream"）
+                error_msg = str(stream_error)
+                if "No generations found in stream" in error_msg or "stream" in error_msg.lower():
+                    log.warning(f"流式处理失败（可能是本地模型兼容性问题）: {error_msg}")
+                    log.info("自动回退到非流式 invoke 模式")
+                    # 回退到非流式调用
+                    result = supervisor_workflow.invoke(supervisor_state, config=config)
+                    state["messages"] = result.get("messages", state.get("messages", []))
+                else:
+                    # 其他错误，重新抛出
+                    raise
                 
         except Exception as e:
             log.error(f"Supervisor 执行失败: {e}", exc_info=True)
+            # 即使失败也尝试返回当前状态，避免完全崩溃
+            if not state.get("messages"):
+                # 如果没有任何消息，至少保留用户输入
+                state["messages"] = state.get("messages", supervisor_state.get("messages", []))
         
         # 3. 从上下文变量同步回 Graph State（线程安全）
         updated_state = sync_state_to_graph(state)
