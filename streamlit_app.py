@@ -547,7 +547,15 @@ async def draw_messages(
                 with st.session_state.last_message:
                     # If the message has content, write it out.
                     # Reset the streaming variables to prepare for the next message.
-                    if msg.content:
+                    # Debug: Check if content is None or empty
+                    if msg.content is None:
+                        st.warning("⚠️ 收到空内容 (None)，可能是本地模型响应格式问题")
+                        # Log for debugging
+                        import logging
+                        logging.getLogger(__name__).warning(f"AI message with None content: {msg.model_dump()}")
+                    elif msg.content == "":
+                        st.info("ℹ️ 收到空字符串内容")
+                    elif msg.content:
                         if streaming_placeholder:
                             streaming_placeholder.write(msg.content)
                             streaming_content = ""
