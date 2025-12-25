@@ -19,31 +19,67 @@ from api.schema import ChatMessage, UserInput
 logger = logging.getLogger(__name__)
 
 
-def convert_message_content_to_string(content: str | list[str | dict]) -> str:
-    """Convert message content to string."""
+def convert_message_content_to_string(content: str | list[str | dict] | None) -> str:
+    """Convert message content to string.
+    
+    Handles various content formats including:
+    - None (common in local model responses)
+    - Empty strings
+    - String content
+    - List of strings or dicts
+    """
+    # Handle None or empty content (common issue with local models)
+    if content is None:
+        return ""
+    
     if isinstance(content, str):
         return content
-    text: list[str] = []
-    for content_item in content:
-        if isinstance(content_item, str):
-            text.append(content_item)
-            continue
-        if isinstance(content_item, dict) and content_item.get("type") == "text":
-            text.append(content_item["text"])
-    return "".join(text)
+    
+    # Handle empty list
+    if not content:
+        return ""
+    
+    # Handle list format
+    if isinstance(content, list):
+        text: list[str] = []
+        for content_item in content:
+            if isinstance(content_item, str):
+                text.append(content_item)
+                continue
+            if isinstance(content_item, dict):
+                # Handle dict with "type": "text" format
+                if content_item.get("type") == "text" and "text" in content_item:
+                    text.append(str(content_item["text"]))
+                # Handle dict with direct "text" key (some local models)
+                elif "text" in content_item:
+                    text.append(str(content_item["text"]))
+                # Handle dict with "content" key (fallback)
+                elif "content" in content_item:
+                    text.append(str(content_item["content"]))
+        return "".join(text)
+    
+    # Fallback: convert to string
+    return str(content) if content else ""
 
 
 def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
-    """Create a ChatMessage from a LangChain message."""
+    """Create a ChatMessage from a LangChain message.
+    
+    Safely handles None content and other edge cases from local models.
+    """
+    # Safely get content, handling None case
+    message_content = getattr(message, "content", None)
+    converted_content = convert_message_content_to_string(message_content)
+    
     if isinstance(message, HumanMessage):
         return ChatMessage(
             type="human",
-            content=convert_message_content_to_string(message.content),
+            content=converted_content,
         )
     elif isinstance(message, AIMessage):
         ai_message = ChatMessage(
             type="ai",
-            content=convert_message_content_to_string(message.content),
+            content=converted_content,
         )
         if hasattr(message, "tool_calls") and message.tool_calls:
             ai_message.tool_calls = message.tool_calls
@@ -53,8 +89,8 @@ def langchain_to_chat_message(message: BaseMessage) -> ChatMessage:
     elif isinstance(message, ToolMessage):
         return ChatMessage(
             type="tool",
-            content=convert_message_content_to_string(message.content),
-            tool_call_id=message.tool_call_id,
+            content=converted_content,
+            tool_call_id=getattr(message, "tool_call_id", None),
         )
     else:
         raise ValueError(f"Unsupported message type: {message.__class__.__name__}")
@@ -109,11 +145,14 @@ async def streaming_message_generator(
                 if not isinstance(msg, AIMessageChunk):
                     continue
                 content = msg.content
-                if content:
-                    # Empty content in the context of OpenAI usually means
-                    # that the model is asking for a tool to be invoked.
-                    # So we only print non-empty content.
-                    yield f"data: {json.dumps({'type': 'token', 'content': convert_message_content_to_string(content)})}\n\n"
+                # Handle None, empty string, and other edge cases from local models
+                # Empty content in the context of OpenAI usually means
+                # that the model is asking for a tool to be invoked.
+                # So we only print non-empty content.
+                if content is not None:
+                    converted_content = convert_message_content_to_string(content)
+                    if converted_content:  # Only yield non-empty content
+                        yield f"data: {json.dumps({'type': 'token', 'content': converted_content})}\n\n"
     except Exception as e:
         logger.error(f"Error in message generator: {e}")
         yield f"data: {json.dumps({'type': 'error', 'content': 'Internal server error'})}\n\n"
