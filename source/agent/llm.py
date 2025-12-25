@@ -15,6 +15,8 @@ if APP_ENV == "dev":
     LOCAL_BASE_URL = "http://localhost:8000/api/v1"
     
     # 创建基础 LLM 配置
+    # 注意：本地模型可能不支持标准流式格式，强制禁用流式以确保兼容性
+    # LangGraph 的流式处理仍然可以工作，只是 LLM 层面不使用流式
     llm = ChatOpenAI(
         model="deepseek-chat",
         temperature=0.7,
@@ -27,8 +29,9 @@ if APP_ENV == "dev":
         # 增加超时时间，本地模型可能响应较慢
         timeout=120.0,
         max_retries=2,
-        # 注意：保持 streaming 默认值（True），让 LangGraph 决定是否使用流式
-        # 如果本地模型流式响应有问题，会在 supervisor 节点中捕获并处理
+        # 关键：禁用流式，因为本地模型的流式响应格式不符合标准
+        # 这不会影响 LangGraph 的整体流式处理，只是 LLM 调用使用非流式
+        streaming=False
     )
 else:
     # --- Prod 环境：使用 DeepSeek 官方接口 ---

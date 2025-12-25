@@ -372,9 +372,20 @@ def create_supervisor_system():
                 if "No generations found in stream" in error_msg or "stream" in error_msg.lower():
                     log.warning(f"流式处理失败（可能是本地模型兼容性问题）: {error_msg}")
                     log.info("自动回退到非流式 invoke 模式")
-                    # 回退到非流式调用
-                    result = supervisor_workflow.invoke(supervisor_state, config=config)
-                    state["messages"] = result.get("messages", state.get("messages", []))
+                    try:
+                        # 回退到非流式调用
+                        result = supervisor_workflow.invoke(supervisor_state, config=config)
+                        state["messages"] = result.get("messages", state.get("messages", []))
+                        log.info("非流式 invoke 模式执行成功")
+                    except Exception as invoke_error:
+                        # 如果 invoke 也失败，记录详细错误
+                        log.error(f"非流式 invoke 也失败: {invoke_error}", exc_info=True)
+                        # 尝试添加错误消息到状态中
+                        from langchain_core.messages import AIMessage
+                        error_response = AIMessage(
+                            content=f"抱歉，处理请求时遇到错误。这可能是本地模型兼容性问题。错误信息: {str(invoke_error)}"
+                        )
+                        state["messages"] = supervisor_state.get("messages", []) + [error_response]
                 else:
                     # 其他错误，重新抛出
                     raise
@@ -383,8 +394,12 @@ def create_supervisor_system():
             log.error(f"Supervisor 执行失败: {e}", exc_info=True)
             # 即使失败也尝试返回当前状态，避免完全崩溃
             if not state.get("messages"):
-                # 如果没有任何消息，至少保留用户输入
-                state["messages"] = state.get("messages", supervisor_state.get("messages", []))
+                # 如果没有任何消息，至少保留用户输入，并添加错误消息
+                from langchain_core.messages import AIMessage
+                error_response = AIMessage(
+                    content=f"抱歉，处理请求时遇到错误: {str(e)}"
+                )
+                state["messages"] = supervisor_state.get("messages", []) + [error_response]
         
         # 3. 从上下文变量同步回 Graph State（线程安全）
         updated_state = sync_state_to_graph(state)
